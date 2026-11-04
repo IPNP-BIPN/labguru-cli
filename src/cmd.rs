@@ -141,6 +141,14 @@ pub fn web_url(c: &Client, web: &str, id: Option<u64>) -> String {
     }
 }
 
+/// Opens an object fetched from the API at its web page (`url` field), or says it has none.
+fn open_obj(c: &Client, obj: &Value) -> Result<()> {
+    match s(obj, "url") {
+        u if u.starts_with('/') => open_url(&format!("{}{u}", c.base)),
+        _ => Err(Usage(tr!("this object has no web page of its own", "cet objet n'a pas de page web à lui").into()).into()),
+    }
+}
+
 /// The object's own web page, read from its `url` field (a paper's `url` is its DOI, hence the fallback).
 fn object_url(c: &Client, k: &K, id: u64) -> Result<String> {
     let obj = c.get(&format!("{}/{id}", k.path))?;
@@ -611,12 +619,26 @@ pub fn section(c: &Client, cmd: SectionCmd) -> Result<()> {
     match cmd {
         SectionCmd::List { target: t, list } => {
             let (p, i) = section_target(&t)?;
-            let mut rows = lgu::sections(&c.get(&format!("{p}/{i}"))?);
+            let obj = c.get(&format!("{p}/{i}"))?;
+            if list.web {
+                return open_obj(c, &obj);
+            }
+            let mut rows = lgu::sections(&obj);
             rows.truncate(list.limit);
             print_list(&rows, SECTION_COLS, &list.out)
         }
         SectionCmd::View(v) => {
             let sec = c.get(&format!("sections/{}", v.id))?;
+            if v.web {
+                return Err(Usage(
+                    tr!(
+                        "a section has no web page of its own: open its experiment with lg browse experiment <id>",
+                        "une section n'a pas de page web à elle : ouvrez son expérience avec lg browse experiment <id>"
+                    )
+                    .into(),
+                )
+                .into());
+            }
             print_object(
                 &sec,
                 &[
@@ -661,12 +683,21 @@ pub fn section(c: &Client, cmd: SectionCmd) -> Result<()> {
             if name.is_none() && b.is_none() {
                 nonempty(&Map::new())?;
             }
+            let renamed = name.is_some();
             if let Some(n) = name {
                 c.put(&format!("sections/{sid}"), json!({"name": n}))?;
             }
             if let Some(b) = b {
                 let sec = c.get(&format!("sections/{sid}"))?;
-                if let lgu::TextOutcome::Commented(e) = lgu::put_text(c, &sec, &html(&b))? {
+                let outcome = lgu::put_text(c, &sec, &html(&b))?;
+                if outcome == lgu::TextOutcome::Unchanged && !renamed {
+                    eprintln!(
+                        "✓ {}",
+                        tr!(format!("Section {sid} already up to date"), format!("Section {sid} déjà à jour"))
+                    );
+                    return Ok(());
+                }
+                if let lgu::TextOutcome::Commented(e) = outcome {
                     bail!(tr!(
                         format!(
                             "Text block {e} has inline comments (lg-comment) in Labguru; lg never overwrites it. Edit it in the web page."
@@ -819,12 +850,18 @@ pub fn attachment(c: &Client, cmd: AttachmentCmd) -> Result<()> {
         AttachmentCmd::List { target: t, list } => {
             let (p, i) = target(&t);
             let obj = c.get(&format!("{p}/{i}"))?;
+            if list.web {
+                return open_obj(c, &obj);
+            }
             let mut rows: Vec<Value> = obj.get("attachments").and_then(Value::as_array).cloned().unwrap_or_default();
             rows.truncate(list.limit);
             print_list(&rows, ATTACH_COLS, &list.out)
         }
         AttachmentCmd::View(v) => {
             let a = c.get(&format!("attachments/{}", v.id))?;
+            if v.web {
+                return open_obj(c, &a);
+            }
             print_object(
                 &a,
                 &[
@@ -862,10 +899,10 @@ pub fn attachment(c: &Client, cmd: AttachmentCmd) -> Result<()> {
         }
         AttachmentCmd::Download { id: aid, output } => {
             let a = c.get(&format!("attachments/{aid}"))?;
-            let url = ["download_url", "url", "attachment_url", "original_url"]
-                .iter()
-                .find_map(|k| a.get(*k).and_then(Value::as_str).filter(|u| !u.is_empty()).map(String::from))
-                .unwrap_or_else(|| lgu::original_url(&a));
+            // `url` is the web page, not the file
+            let url = Some(s(&a, "download_url"))
+                .filter(|u| !u.is_empty())
+                .map_or_else(|| lgu::original_url(&a), String::from);
             let name = Some(s(&a, "attachment_file_name"))
                 .filter(|n| !n.is_empty())
                 .unwrap_or(s(&a, "title"))
@@ -967,7 +1004,11 @@ pub fn parse_fields(fields: &[String]) -> Result<Map<String, Value>> {
 }
 
 pub fn api(c: &Client, a: ApiArgs) -> Result<()> {
-    let method = a.method.to_ascii_uppercase();
+    let method = a
+        .method
+        .as_deref()
+        .unwrap_or(if a.input.is_some() { "POST" } else { "GET" })
+        .to_ascii_uppercase();
     let mut body = match &a.input {
         Some(p) => {
             let mut sb = String::new();

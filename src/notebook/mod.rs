@@ -238,7 +238,11 @@ impl Ctx<'_> {
         Ok(rows
             .iter()
             .find(|x| !uuid.is_empty() && s(x, "external_uuid") == uuid)
-            .or_else(|| rows.iter().find(|x| s(x, "title") == title))
+            // by title only an object no other notebook entry owns (two entries may share a title)
+            .or_else(|| {
+                rows.iter()
+                    .find(|x| s(x, "title") == title && !s(x, "external_uuid").starts_with("lg:"))
+            })
             .cloned())
     }
 
@@ -663,7 +667,7 @@ pub fn push(c: &Client, root: &Path, o: PushOpts, out: &mut dyn FnMut(String)) -
                         x.create("notes", json!({"title": title, "body": body, "project_id": pid}))?;
                     }
                 }
-                Some(n) if s(&n, "body").split_whitespace().collect::<String>() != body.split_whitespace().collect::<String>() => {
+                Some(n) if !lgu::same_html(s(&n, "body"), &body) => {
                     x.change("~", tr!(format!("note « {title} »"), format!("note « {title} »")));
                     if o.apply {
                         c.put(&format!("notes/{}", id(&n).unwrap_or(0)), json!({"body": body}))?;
@@ -773,7 +777,6 @@ pub fn check(c: &Client, root: &Path, o: PushOpts, out: &mut dyn FnMut(String)) 
     Ok(r)
 }
 
-/// 1×1 transparent PNG for the example entry.
 // 64×64: Labguru refuses a 1×1 image (HTTP 422)
 const PNG: &[u8] = &[
     0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00,

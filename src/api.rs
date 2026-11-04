@@ -216,9 +216,9 @@ impl Client {
             };
             let status = resp.status().as_u16();
             let text = resp.body_mut().with_config().limit(1 << 30).read_to_string().unwrap_or_default();
-            if (status == 429 || status >= 500)
-                && let Some(w) = waits.next()
-            {
+            // a 5xx after a write may come after the write was done: retrying it could duplicate the object
+            let retry = status == 429 || (status >= 500 && method.eq_ignore_ascii_case("GET"));
+            if retry && let Some(w) = waits.next() {
                 eprintln!(
                     "{}",
                     tr!(
@@ -356,7 +356,7 @@ impl Client {
         } else {
             format!("{}{url}", self.base)
         };
-        let same_host = full.starts_with(&self.base);
+        let same_host = full == self.base || full.starts_with(&format!("{}/", self.base));
         let req = self.agent.get(&full);
         let req = if same_host { req.query("token", &self.token) } else { req }; // never send the token elsewhere
         let mut resp = req.call().map_err(|e| anyhow!(redact(&format!("GET {url}: {e}"))))?;

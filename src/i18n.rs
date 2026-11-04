@@ -143,7 +143,10 @@ pub const HELP_FR: &[(&str, &str)] = &[
         "API path, e.g. projects, experiments/12, v2/experiments",
         "Chemin d'API, ex. projects, experiments/12, v2/experiments",
     ),
-    ("HTTP method", "Méthode HTTP"),
+    (
+        "HTTP method (default: GET, or POST with --input)",
+        "Méthode HTTP (par défaut : GET, ou POST avec --input)",
+    ),
     (
         "Add a parameter key=value (item[title]=x nests)",
         "Ajouter un paramètre clé=valeur (item[title]=x pour imbriquer)",
@@ -203,10 +206,34 @@ pub const HELP_FR: &[(&str, &str)] = &[
     ),
     ("Open in the web browser", "Ouvrir dans le navigateur"),
     ("Maximum number of results", "Nombre maximal de résultats"),
+    ("Print help", "Afficher l'aide"),
+    ("Print version", "Afficher la version"),
+    (
+        "Print this message or the help of the given subcommand(s)",
+        "Afficher ce message ou l'aide des sous-commandes indiquées",
+    ),
+    ("DOI (e.g. 10.1038/171737a0)", "DOI (ex. 10.1038/171737a0)"),
+    ("Web address of the paper", "Adresse web de l'article"),
     ("Skip the confirmation prompt", "Ne pas demander confirmation"),
     (
         "Directory where to write lg.1 (default: standard output)",
         "Dossier où écrire lg.1 (par défaut : sortie standard)",
+    ),
+];
+
+/// Paragraphs of `after_help` (before "Examples:").
+pub const PROSE_FR: &[(&str, &str)] = &[
+    (
+        "The token is added for you: in the query for GET, in the JSON body otherwise.\nPaths without a version use /api/v1 (and .json).",
+        "Le token est ajouté pour vous : dans la requête pour GET, dans le corps JSON sinon.\nLes chemins sans version utilisent /api/v1 (et .json).",
+    ),
+    (
+        "Without --with-token, lg asks for your e-mail and password once and stores only the token.",
+        "Sans --with-token, lg demande une fois votre e-mail et votre mot de passe et ne garde que le token.",
+    ),
+    (
+        "Dry run by default. Idempotent: objects are found by external_uuid (lg:<project>/<folder>/<file>), else by title when no other entry owns that object. Experiments are never deleted.",
+        "À blanc par défaut. Idempotent : les objets sont retrouvés par external_uuid (lg:<projet>/<dossier>/<fichier>), sinon par titre si aucune autre entrée ne possède cet objet. Aucune expérience n'est jamais supprimée.",
     ),
 ];
 
@@ -232,6 +259,7 @@ pub fn localize_with(mut cmd: clap::Command) -> clap::Command {
         cmd = cmd.about(a);
     }
     if let Some(h) = cmd.get_after_help().map(|h| h.to_string()) {
+        let h = PROSE_FR.iter().fold(h, |h, (en, f)| h.replace(en, f));
         cmd = cmd.after_help(h.replace("Examples:", "Exemples :"));
     }
     cmd = cmd.mut_args(|a| match a.get_help().and_then(|h| fr(&h.to_string())) {

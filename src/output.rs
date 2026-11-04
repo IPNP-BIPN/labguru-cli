@@ -170,7 +170,10 @@ pub fn emit_json(w: &mut dyn Write, v: &Value, out: &OutArgs) -> Result<()> {
 pub fn render_table(w: &mut dyn Write, rows: &[Value], cols: &[(&str, &str)], tty: bool, color: bool) -> Result<()> {
     if !tty {
         for r in rows {
-            let line: Vec<String> = cols.iter().map(|(_, f)| cell(field(r, f)).replace(['\t', '\n'], " ")).collect();
+            let line: Vec<String> = cols
+                .iter()
+                .map(|(_, f)| cell(field(r, f)).replace(['\t', '\n', '\r'], " "))
+                .collect();
             writeln!(w, "{}", line.join("\t"))?;
         }
         return Ok(());
@@ -186,9 +189,6 @@ pub fn render_table(w: &mut dyn Write, rows: &[Value], cols: &[(&str, &str)], tt
     }));
     for r in rows {
         t.add_row(cols.iter().map(|(_, f)| cell(field(r, f))));
-    }
-    if !color {
-        t.force_no_tty();
     }
     writeln!(w, "{}", t.lines().map(|l| l.trim_end().to_string()).collect::<Vec<_>>().join("\n"))?;
     Ok(())
@@ -225,7 +225,7 @@ pub fn render_object(w: &mut dyn Write, v: &Value, fields: &[(&str, &str)], tty:
             };
             writeln!(w, "{label} {c}")?;
         } else {
-            writeln!(w, "{label}\t{c}")?;
+            writeln!(w, "{label}\t{}", c.replace(['\t', '\n', '\r'], " "))?;
         }
     }
     Ok(())

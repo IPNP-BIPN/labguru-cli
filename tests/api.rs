@@ -36,6 +36,12 @@ fn retries_pagination_and_errors() {
     assert!(e.contains("503") && !e.contains(TOKEN), "token must be masked: {e}");
     f.state.lock().unwrap().fail_next = 0;
 
+    // a write that gets a 5xx is not sent again (it may have been done: no duplicate)
+    f.clear_log();
+    f.state.lock().unwrap().fail_next = 1;
+    assert!(c.post("projects", json!({"title": "once"})).is_err());
+    assert_eq!(f.writes().len(), 1, "{:?}", f.writes());
+
     let bad = Client::new(&f.url, "wrong-token-xyz");
     let e = bad.get("projects").unwrap_err();
     assert!(e.downcast_ref::<AuthRequired>().is_some());
@@ -222,4 +228,21 @@ fn nested_folder_keeps_full_ancestry() {
     assert!(a["ancestry"].is_null());
     assert_eq!(b["ancestry"], a["id"].to_string());
     assert_eq!(g["ancestry"], format!("{}/{}", a["id"], b["id"]));
+}
+
+#[test]
+fn same_title_entries_keep_their_own_experiment() {
+    let f = Fake::start();
+    let c = client(&f);
+    let root = tmpdir("same").join("nb");
+    std::fs::create_dir_all(root.join("qc")).unwrap();
+    std::fs::create_dir_all(root.join("seq")).unwrap();
+    std::fs::write(root.join("lg.toml"), "project = \"P\"\n").unwrap();
+    for d in ["qc", "seq"] {
+        std::fs::write(root.join(d).join("run.md"), "# Run 1\n\n## Results\n\n02/11/2026: ok.\n").unwrap();
+    }
+    run(&c, &root, true);
+    assert_eq!(f.count("experiments"), 2);
+    let (n, lines) = run(&c, &root, true);
+    assert_eq!(n, 0, "{lines:?}");
 }

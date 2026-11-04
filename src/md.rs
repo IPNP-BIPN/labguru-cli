@@ -27,6 +27,8 @@ pub fn to_html(md: &str, image: &mut dyn FnMut(&str) -> Option<String>) -> Strin
             "<span style=\"font-family: monospace\">{}</span>",
             escape(&c)
         ))),
+        // Labguru deletes <input> checkboxes: keep the ticks as text
+        Event::TaskListMarker(done) => Event::Text(CowStr::from(if done { "☑ " } else { "☐ " })),
         Event::Start(Tag::Heading { level, .. }) => Event::Start(Tag::Heading {
             level: shift(level),
             id: None,
@@ -104,6 +106,8 @@ mod tests {
         let t = to_html("| a | b |\n|---|---|\n| 1 | 2 |\n", &mut none);
         assert!(t.contains("<table>") && t.contains("<td>1</td>"), "{t}");
         assert!(!to_html("## H {#anchor}", &mut none).contains("id="));
+        let c = to_html("- [x] done\n- [ ] todo\n", &mut none);
+        assert!(c.contains("☑ done") && c.contains("☐ todo") && !c.contains("<input"), "{c}");
     }
 
     #[test]

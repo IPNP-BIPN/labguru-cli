@@ -67,15 +67,17 @@ pub fn latex(t: &str) -> String {
         .to_string()
     });
     let t = Regex::new(r"\\([&%_$#])").unwrap().replace_all(&t, "$1");
+    // other commands (\emph{x}, \textit{x}) keep only their argument
+    let t = Regex::new(r"\\[A-Za-z]+\s*").unwrap().replace_all(&t, "");
     let t = t.replace("---", "—").replace("--", "–").replace('~', " ").replace(['{', '}'], "");
     t.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub fn parse(text: &str) -> Vec<Entry> {
     let text = Regex::new(r"(?m)^\s*%.*$").unwrap().replace_all(text, "").to_string();
-    let head = Regex::new(r"@(\w+)\s*\{\s*([^,\s{}]*)\s*,").unwrap();
+    let head = Regex::new(r"@(\w+)\s*[{(]\s*([^,\s{}()]*)\s*,").unwrap();
     let field = Regex::new(r"^\s*,?\s*(\w[\w-]*)\s*=\s*").unwrap();
-    let bare = Regex::new(r"^[^,}\s]+").unwrap();
+    let bare = Regex::new(r"^[^,})\s]+").unwrap();
     let b = text.as_bytes();
     let (mut out, mut pos) = (Vec::new(), 0);
     while let Some(m) = head.captures_at(&text, pos) {
@@ -111,7 +113,12 @@ pub fn parse(text: &str) -> Vec<Entry> {
                     None => break,
                 },
             }
-            e.insert(name, latex(val));
+            let v = match name.as_str() {
+                "url" | "doi" => val.trim().to_string(), // verbatim: ~ and -- stay
+                "author" | "editor" => split_names(val).iter().map(|a| latex(a)).collect::<Vec<_>>().join("; "),
+                _ => latex(val),
+            };
+            e.insert(name, v);
         }
         pos = i.max(m.get(0).unwrap().end());
         if !["comment", "string", "preamble"].contains(&kind.as_str()) {
@@ -123,20 +130,52 @@ pub fn parse(text: &str) -> Vec<Entry> {
     out
 }
 
+/// "A and {B and C} and D" → ["A", "{B and C}", "D"]: braces protect an " and ".
+fn split_names(v: &str) -> Vec<&str> {
+    let (mut out, mut depth, mut start) = (Vec::new(), 0, 0);
+    let lower = v.to_ascii_lowercase();
+    let mut i = 0;
+    while i < v.len() {
+        match v.as_bytes()[i] {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
+            _ if depth == 0 && lower[i..].starts_with(" and ") => {
+                out.push(v[start..i].trim());
+                i += 5;
+                start = i;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out.push(v[start..].trim());
+    out.into_iter().filter(|s| !s.is_empty()).collect()
+}
+
 const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
 /// BibTeX entry → Labguru paper `item`.
 pub fn paper_item(b: &Entry) -> Map<String, Value> {
     let g = |k: &str| b.get(k).cloned().unwrap_or_default();
-    let year: String = g("year").chars().take(4).collect();
-    let mon = g("month").to_lowercase();
+    // biblatex: date = {2021-03-04}
+    let date_f = g("date");
+    let year: String = b.get("year").unwrap_or(&date_f).chars().take(4).collect();
+    let mon = b
+        .get("month")
+        .cloned()
+        .unwrap_or_else(|| date_f.get(5..7).unwrap_or("").to_string())
+        .to_lowercase();
     let month = mon
         .parse::<u32>()
         .ok()
         .or_else(|| MONTHS.iter().position(|m| mon.starts_with(m)).map(|i| i as u32 + 1))
         .unwrap_or(1);
-    let doi = g("doi").trim_start_matches("https://doi.org/").to_string();
-    let authors = Regex::new(r"\s+and\s+").unwrap().split(&g("author")).collect::<Vec<_>>().join("; ");
+    let doi = Regex::new(r"(?i)^(https?://(dx\.)?doi\.org/|doi:\s*)")
+        .unwrap()
+        .replace(&g("doi"), "")
+        .to_string();
+    let authors = g("author");
     let date = (year.len() == 4 && year.chars().all(|c| c.is_ascii_digit())).then(|| format!("{year}-{month:02}-01"));
     let url = b
         .get("url")
@@ -182,6 +221,16 @@ mod tests {
         assert_eq!(Value::Object(p), want);
         assert_eq!(b[1]["title"], "Ça île ß");
         assert_eq!(b[1]["author"], "ø");
-        assert_eq!(b[1]["note"], r"\citex");
+        assert_eq!(b[1]["note"], "x");
+        let c = parse(concat!(
+            "@article(c, title={The \\emph{Drosophila} genome}, date={2021-03-04}, doi={https://dx.doi.org/10.1/x},\n",
+            " url={https://x.org/~s/a--b}, author={{Bill and Melinda Gates Foundation} and Smith, J.})"
+        ));
+        let p = paper_item(&c[0]);
+        assert_eq!(p["name"], "The Drosophila genome");
+        assert_eq!(p["publication_date"], "2021-03-01");
+        assert_eq!(p["doi"], "10.1/x");
+        assert_eq!(p["url"], "https://x.org/~s/a--b");
+        assert_eq!(p["authors"], "Bill and Melinda Gates Foundation; Smith, J.");
     }
 }

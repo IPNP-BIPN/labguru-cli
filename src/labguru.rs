@@ -33,9 +33,16 @@ pub enum TextOutcome {
     Commented(u64),
 }
 
-/// Equal up to whitespace and `<img … />` vs `<img …>` (Labguru drops the slash).
+/// Equal as Labguru stores it: whitespace ignored, `<br />` stored as `<br>`, `&quot;` `&#39;` `&amp;` decoded.
 pub fn same_html(a: &str, b: &str) -> bool {
-    let n = |s: &str| s.split_whitespace().collect::<String>().replace("/>", ">");
+    let n = |s: &str| {
+        s.split_whitespace()
+            .collect::<String>()
+            .replace("/>", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&amp;", "&")
+    };
     n(a) == n(b)
 }
 
@@ -256,5 +263,10 @@ mod tests {
         assert_eq!(sections(&e)[0]["name"], "Results");
         assert_eq!(tag_names(&json!({"tags": ["a", {"name": "b"}]})), ["a", "b"]);
         assert!(same_html("<p>a</p>\n", "<p>a</p>"));
+        // as cle.inserm.fr stores it
+        assert!(same_html(
+            "<p>a &quot;b&quot; &amp; c<br />\nd</p><hr /><a href=\"/?a=1&amp;b=2\">x</a>",
+            "<p>a \"b\" & c<br>\nd</p>\n<hr>\n<a href=\"/?a=1&b=2\">x</a>"
+        ));
     }
 }

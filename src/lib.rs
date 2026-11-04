@@ -370,7 +370,7 @@ mod tests {
         assert!(p(&["lg", "section", "create", "--name", "R"]).is_err()); // a target is required
         assert!(p(&["lg", "tag", "create", "x", "--experiment", "1", "--project", "2"]).is_err()); // only one target
         let api = p(&["lg", "api", "-X", "PUT", "experiments/1", "-f", "item[title]=a", "--jq", ".id"]).unwrap();
-        assert!(matches!(api.cmd, Cmd::Api(a) if a.method == "PUT" && a.fields == ["item[title]=a"]));
+        assert!(matches!(api.cmd, Cmd::Api(a) if a.method.as_deref() == Some("PUT") && a.fields == ["item[title]=a"]));
         let e = p(&["lg", "nope"]).unwrap_err();
         assert!(e.use_stderr());
     }
@@ -397,6 +397,18 @@ mod tests {
         texts(&built, &mut all);
         for (en, _) in i18n::HELP_FR {
             assert!(all.iter().any(|t| t == en), "unused translation: {en}");
+        }
+        let helps: Vec<String> = {
+            fn after(c: &clap::Command, out: &mut Vec<String>) {
+                out.extend(c.get_after_help().map(|h| h.to_string()));
+                c.get_subcommands().for_each(|s| after(s, out));
+            }
+            let mut v = Vec::new();
+            after(&built, &mut v);
+            v
+        };
+        for (en, _) in i18n::PROSE_FR {
+            assert!(helps.iter().any(|h| h.contains(en)), "unused prose translation: {en}");
         }
         let fr = i18n::localize_with(Cli::command());
         assert_eq!(fr.get_about().unwrap().to_string(), "Travailler avec Labguru en ligne de commande");

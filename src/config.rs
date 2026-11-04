@@ -96,8 +96,7 @@ impl Config {
         std::fs::create_dir_all(&d).with_context(|| d.display().to_string())?;
         let p = path();
         let tmp = p.with_extension("toml.tmp");
-        std::fs::write(&tmp, toml::to_string_pretty(self)?)?;
-        restrict(&tmp)?;
+        write_private(&tmp, toml::to_string_pretty(self)?.as_bytes())?;
         std::fs::rename(&tmp, &p).with_context(|| p.display().to_string())?;
         Ok(())
     }
@@ -110,17 +109,26 @@ impl Config {
     }
 }
 
+/// Written readable by the user only from the start (it may hold a token).
 #[cfg(unix)]
-fn restrict(p: &std::path::Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600))?;
+fn write_private(p: &std::path::Path, data: &[u8]) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(p)?;
+    f.set_permissions(std::fs::Permissions::from_mode(0o600))?; // an older file may have looser rights
+    f.write_all(data)?;
     Ok(())
 }
 
 // shortcut: on Windows the file keeps the default ACL of the user profile, which is per-user already
 #[cfg(not(unix))]
-fn restrict(_: &std::path::Path) -> Result<()> {
-    Ok(())
+fn write_private(p: &std::path::Path, data: &[u8]) -> Result<()> {
+    Ok(std::fs::write(p, data)?)
 }
 
 /// "https://cle.inserm.fr/" → "cle.inserm.fr"; http:// URLs (local tests) keep their scheme.

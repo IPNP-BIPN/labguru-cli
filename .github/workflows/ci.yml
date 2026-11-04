@@ -22,3 +22,16 @@ jobs:
       - run: cargo test
         env:
           LG_NO_KEYRING: "1"
+
+  # the release ships static Linux binaries: build one on every push, not only at tag time
+  musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - run: ./target/x86_64-unknown-linux-musl/release/lg --version

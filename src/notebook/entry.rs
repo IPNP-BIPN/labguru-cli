@@ -2,9 +2,9 @@
 //! Results; its group (status) and its real dates.
 
 use anyhow::{Result, bail};
+use jiff::Timestamp;
 use jiff::civil::Date;
 use jiff::tz::TimeZone;
-use jiff::{Timestamp, ToSpan};
 use regex::Regex;
 use std::collections::BTreeMap;
 
@@ -45,6 +45,8 @@ pub struct Entry {
     pub sections: BTreeMap<String, String>,
     /// Text without the header, for date scanning.
     pub text: String,
+    /// Date the entry is about (header start, else the file name's YYYY-MM-DD): gives a year to "DD/MM".
+    pub anchor: Option<Date>,
 }
 
 /// "2026-10-19" or "19/10/2026".
@@ -150,6 +152,7 @@ pub fn parse_entry(text: &str, fallback_title: &str) -> Result<Entry> {
             _ => {}
         }
     }
+    e.anchor = e.start.or_else(|| fallback_title.get(..10).and_then(|d| d.parse().ok()));
     if let (Some(a), Some(b)) = (e.start, e.end)
         && b < a
     {
@@ -191,32 +194,38 @@ pub fn group(e: &Entry) -> Status {
 /// Days cited in an entry (DD/MM[/YYYY], YYYY-MM-DD), up to today, ignoring snapshots
 /// ("au 03/11", "Figures du 03/11", "as of 2026-11-03"). DD/MM without year: this year, or the
 /// previous one if that would be after today.
-pub fn cited_days(text: &str, today: Date) -> Vec<Date> {
+/// Days cited in the text, up to today. "DD/MM" (two digits each, so that a dilution such as 1/10 is
+/// not a date) takes the year that puts it closest to `anchor`, else to the first full date cited, else to today.
+pub fn cited_days(text: &str, today: Date, anchor: Option<Date>) -> Vec<Date> {
     let snapshot = Regex::new(r"(?i)(\bau|\bfigures?\s+(?:du|of)|\bas\s+of)\s+[\d/\-]+").unwrap();
     let text = snapshot.replace_all(text, " ");
     let token = Regex::new(r"[\d/\-]+").unwrap();
-    let dmy = Regex::new(r"^(\d{1,2})/(\d{1,2})(?:/(\d{4}))?$").unwrap();
+    let dmy = Regex::new(r"^(\d{1,2})/(\d{1,2})/(\d{4})$").unwrap();
+    let dm = Regex::new(r"^(\d{2})/(\d{2})$").unwrap();
     let ymd = Regex::new(r"^(\d{4})-(\d{2})-(\d{2})$").unwrap();
-    let mut out = Vec::new();
-    for t in token.find_iter(&text) {
-        let t = t.as_str();
-        let d = if let Some(m) = ymd.captures(t) {
-            Date::new(m[1].parse().unwrap_or(0), m[2].parse().unwrap_or(0), m[3].parse().unwrap_or(0)).ok()
-        } else if let Some(m) = dmy.captures(t) {
-            let (day, mon) = (m[1].parse().unwrap_or(0), m[2].parse().unwrap_or(0));
-            match m.get(3) {
-                Some(y) => Date::new(y.as_str().parse().unwrap_or(0), mon, day).ok(),
-                None => Date::new(today.year(), mon, day)
-                    .ok()
-                    .map(|d| if d > today { d.checked_sub(1.year()).unwrap_or(d) } else { d }),
-            }
+    let n = |x: &str| x.parse().unwrap_or(0);
+    let full = |t: &str| {
+        if let Some(m) = ymd.captures(t) {
+            Date::new(n(&m[1]), n(&m[2]) as i8, n(&m[3]) as i8).ok()
         } else {
-            None
-        };
-        if let Some(d) = d.filter(|d| *d <= today) {
-            out.push(d);
+            dmy.captures(t)
+                .and_then(|m| Date::new(n(&m[3]), n(&m[2]) as i8, n(&m[1]) as i8).ok())
         }
-    }
+    };
+    let tokens: Vec<&str> = token.find_iter(&text).map(|t| t.as_str()).collect();
+    let anchor = anchor.or_else(|| tokens.iter().find_map(|t| full(t))).unwrap_or(today);
+    let mut out: Vec<Date> = tokens
+        .iter()
+        .filter_map(|t| {
+            full(t).or_else(|| {
+                let m = dm.captures(t)?;
+                (anchor.year() - 1..=anchor.year() + 1)
+                    .filter_map(|y| Date::new(y, n(&m[2]) as i8, n(&m[1]) as i8).ok())
+                    .min_by_key(|d| (*d - anchor).get_days().abs())
+            })
+        })
+        .filter(|d| *d <= today)
+        .collect();
     out.sort();
     out.dedup();
     out
@@ -261,7 +270,7 @@ pub struct Span {
 
 /// Dates of an entry: header, else the cited days; times from the data files of those days.
 pub fn span(e: &Entry, today: Date, times: &BTreeMap<Date, (Timestamp, Timestamp)>, tz: &TimeZone) -> Option<Span> {
-    let cited = cited_days(&e.text, today);
+    let cited = cited_days(&e.text, today, e.anchor);
     let start_day = e.start.or(cited.first().copied())?;
     let end_day = e.end.or(cited.last().copied()).unwrap_or(start_day).max(start_day);
     let midnight = |d: Date| d.to_zoned(tz.clone()).map(|z| z.timestamp()).unwrap_or_default();
@@ -319,11 +328,24 @@ mod tests {
     fn dates() {
         let today = date(2026, 11, 3);
         let t = "plan du 28/08/2026, passages du 19/10 et 2026-10-29, ratio 500 / 2000, plan 4/6/5, embargo 31/01/2028, 31/02/2026";
-        assert_eq!(cited_days(t, today), [date(2026, 8, 28), date(2026, 10, 19), date(2026, 10, 29)]);
+        assert_eq!(
+            cited_days(t, today, None),
+            [date(2026, 8, 28), date(2026, 10, 19), date(2026, 10, 29)]
+        );
         let snap = "Le 19/10/2026, fait. Bloc en cours au 03/11/2026. Figures du 02/11/2026. Status as of 2026-11-01.";
-        assert_eq!(cited_days(snap, today), [date(2026, 10, 19)]);
+        assert_eq!(cited_days(snap, today, None), [date(2026, 10, 19)]);
         // 15/12 without a year in early January → last year
-        assert_eq!(cited_days("le 15/12", date(2027, 1, 5)), [date(2026, 12, 15)]);
+        assert_eq!(cited_days("le 15/12", date(2027, 1, 5), None), [date(2026, 12, 15)]);
+        // dilutions are not dates
+        assert_eq!(cited_days("dilution 1/10, puis 1/2", today, None), []);
+        // a year later, an entry of January 2026 keeps its year
+        let later = date(2027, 2, 1);
+        assert_eq!(cited_days("Le 16/01 : mesure", later, Some(date(2026, 1, 15))), [date(2026, 1, 16)]);
+        assert_eq!(
+            cited_days("Le 16/01/2026 puis le 17/01", later, None),
+            [date(2026, 1, 16), date(2026, 1, 17)]
+        );
+        assert_eq!(parse_entry("# x", "2026-01-15-run").unwrap().anchor, Some(date(2026, 1, 15)));
     }
 
     #[test]

@@ -485,8 +485,10 @@ pub struct PaperFields {
     /// Publication date (YYYY-MM-DD)
     #[arg(long)]
     pub date: Option<String>,
+    /// DOI (e.g. 10.1038/171737a0)
     #[arg(long)]
     pub doi: Option<String>,
+    /// Web address of the paper
     #[arg(long)]
     pub url: Option<String>,
 }
@@ -593,9 +595,9 @@ pub enum TagCmd {
 pub struct ApiArgs {
     /// API path, e.g. projects, experiments/12, v2/experiments
     pub path: String,
-    /// HTTP method
-    #[arg(long = "method", short = 'X', default_value = "GET")]
-    pub method: String,
+    /// HTTP method (default: GET, or POST with --input)
+    #[arg(long = "method", short = 'X')]
+    pub method: Option<String>,
     /// Add a parameter key=value (item[title]=x nests)
     #[arg(long = "field", short = 'f', value_name = "KEY=VALUE")]
     pub fields: Vec<String>,
@@ -667,7 +669,7 @@ pub enum NotebookCmd {
     },
     /// Show (or with --apply, make) the changes needed in Labguru
     #[command(
-        after_help = "Dry run by default. Idempotent: objects are found by external_uuid (lg:<project>/<folder>/<file>), else by title. Experiments are never deleted.
+        after_help = "Dry run by default. Idempotent: objects are found by external_uuid (lg:<project>/<folder>/<file>), else by title when no other entry owns that object. Experiments are never deleted.
 
 Examples:
   lg notebook push

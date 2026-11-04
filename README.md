@@ -164,7 +164,8 @@ An example notebook is in [`examples/notebook`](examples/notebook) (English) and
 
 The quirks of the Labguru v1 API are handled once, in [`src/api.rs`](src/api.rs) and
 [`src/labguru.rs`](src/labguru.rs): token in the query for GET and in the JSON body otherwise, the `item`
-envelope, PUTs that answer with an empty body, retries on 429/5xx (after 5 s, 30 s, 120 s), folder start dates
+envelope, PUTs that answer with an empty body, project descriptions set only at creation, nested folders whose
+`ancestry` is cut to one level at creation, retries on 429/5xx (after 5 s, 30 s, 120 s), folder start dates
 accepted only at creation, folder descriptions stored as a section, folder status as `completed` / `current` /
 `compleation_date`, experiments requiring a folder, text blocks updated with `data` at the root, full-size image
 URLs, paper links, tag removal.

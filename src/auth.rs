@@ -156,6 +156,12 @@ pub fn login(a: LoginArgs) -> Result<()> {
                 "Aucun token sur l'entrée standard. Exemple : lg auth login --with-token < token.txt"
             ));
         }
+        if t.contains(char::is_whitespace) {
+            bail!(tr!(
+                "Standard input holds several words or lines, not a token. Copy only the token, then: pbpaste | lg auth login --with-token",
+                "L'entrée standard contient plusieurs mots ou lignes, pas un token. Copiez seulement le token, puis : pbpaste | lg auth login --with-token"
+            ));
+        }
         (t, a.user.clone().unwrap_or_else(|| "default".into()))
     } else {
         if !can_prompt() {

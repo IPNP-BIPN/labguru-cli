@@ -191,10 +191,18 @@ fn route(st: &Mutex<State>, method: &str, target: &str, ctype: &str, body: &[u8]
         },
         ("POST", _) => post(&mut s, &kind, item, &payload),
         ("PUT", Some(i)) => {
-            let data = if kind == "elements" {
-                json!({"data": payload["data"]})
-            } else {
-                item
+            // as cle.inserm.fr: `<img … />` stored as `<img …>`, and PUT /projects only takes `title`
+            let data = match kind.as_str() {
+                "elements" => json!({"data": payload["data"].as_str().map(|d| d.replace(" />", ">"))}),
+                "projects" => json!(
+                    item.as_object()
+                        .unwrap()
+                        .iter()
+                        .filter(|(k, _)| *k == "title")
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect::<Map<_, _>>()
+                ),
+                _ => item,
             };
             let Some(row) = s.db.get_mut(&kind).and_then(|v| v.iter_mut().find(|r| r["id"] == i)) else {
                 return (404, json!({}));
@@ -321,6 +329,9 @@ fn post(s: &mut State, kind: &str, item: Value, payload: &Value) -> (u16, Value)
     }
     let mut row = item.clone();
     row["id"] = json!(id);
+    if let (true, Some(a)) = (kind == "milestones", item["ancestry"].as_str()) {
+        row["ancestry"] = json!(a.split('/').next()); // as cle.inserm.fr does at creation
+    }
     row["uuid"] = json!(format!("uuid-{id}"));
     row["class_name"] = json!(class(kind));
     if kind == "projects" {

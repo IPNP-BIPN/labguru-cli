@@ -141,6 +141,15 @@ pub fn web_url(c: &Client, web: &str, id: Option<u64>) -> String {
     }
 }
 
+/// The object's own web page, read from its `url` field (a paper's `url` is its DOI, hence the fallback).
+fn object_url(c: &Client, k: &K, id: u64) -> Result<String> {
+    let obj = c.get(&format!("{}/{id}", k.path))?;
+    Ok(match obj["url"].as_str() {
+        Some(u) if u.starts_with('/') => format!("{}{u}", c.base),
+        _ => web_url(c, k.web, Some(id)),
+    })
+}
+
 pub fn open_url(url: &str) -> Result<()> {
     let cfg = crate::config::Config::load().unwrap_or_default();
     let browser = std::env::var("BROWSER")
@@ -234,7 +243,7 @@ fn list_generic(c: &Client, k: &K, l: &ListArgs, keep: &dyn Fn(&Value) -> bool) 
 
 fn view_generic(c: &Client, k: &K, v: &ViewArgs) -> Result<()> {
     if v.web {
-        return open_url(&web_url(c, k.web, Some(v.id)));
+        return open_url(&object_url(c, k, v.id)?);
     }
     let obj = c.get(&format!("{}/{}", k.path, v.id))?;
     print_object(&obj, k.view, &v.out)?;
@@ -275,7 +284,10 @@ fn print_sections(obj: &Value) -> Result<()> {
 }
 
 fn delete_generic(c: &Client, k: &K, d: &DeleteArgs, path: &str) -> Result<()> {
-    c.require("DELETE", path, &format!("lg {} delete", k.name))?;
+    // the /api-docs omit most v1 DELETEs that work (milestones on cle.inserm.fr): only a missing v2 is a sure refusal
+    if path.starts_with("v2/") {
+        c.require("DELETE", path, &format!("lg {} delete", k.name))?;
+    }
     confirm(
         &tr!(format!("Delete {} {}", k.name, d.id), format!("Supprimer {} {}", k.name, d.id)),
         d.yes,
@@ -349,7 +361,19 @@ pub fn project(c: &Client, cmd: ProjectCmd) -> Result<()> {
                 m.insert("start_date".into(), json!(date_or_err(&st)?));
             }
             nonempty(&m)?;
-            c.put(&format!("projects/{id}"), Value::Object(m))?;
+            c.put(&format!("projects/{id}"), Value::Object(m.clone()))?;
+            // PUT /projects only takes `title` (cle.inserm.fr): say so rather than claim success
+            let now = c.get(&format!("projects/{id}"))?;
+            if m.get("description")
+                .is_some_and(|d| !lgu::same_html(s(&now, "description"), d.as_str().unwrap_or("")))
+            {
+                bail!(tr!(
+                    format!("Labguru did not change the description: its API cannot. Edit it in the web page: lg browse project {id}"),
+                    format!(
+                        "Labguru n'a pas modifié la description : son API ne le permet pas. Changez-la dans la page web : lg browse project {id}"
+                    )
+                ));
+            }
             updated(&PROJECT, id);
             Ok(())
         }
@@ -412,7 +436,14 @@ pub fn folder(c: &Client, cmd: FolderCmd) -> Result<()> {
             if let Some(st) = start {
                 item["start_date"] = json!(date_or_err(&st)?); // only accepted at creation
             }
-            let f = c.post("milestones", item)?;
+            let f = c.post("milestones", item.clone())?;
+            // Labguru keeps only the first level of `ancestry` at creation; a PUT stores it whole
+            if !item["ancestry"].is_null() && f["ancestry"] != item["ancestry"] {
+                c.put(
+                    &format!("milestones/{}", id(&f).unwrap_or(0)),
+                    json!({"ancestry": item["ancestry"]}),
+                )?;
+            }
             if let Some(d) = description {
                 set_description(c, "milestones", id(&f).unwrap_or(0), &d)?;
             }
@@ -906,7 +937,7 @@ pub fn tag(c: &Client, cmd: TagCmd) -> Result<()> {
 }
 
 pub fn browse(c: &Client, k: Kind, i: u64) -> Result<()> {
-    open_url(&web_url(c, kind(k).web, Some(i)))
+    open_url(&object_url(c, kind(k), i)?)
 }
 
 /// "item[title]=x" → {"item": {"title": "x"}}.

@@ -193,3 +193,33 @@ fn notebook_push_is_idempotent() {
         f.writes()
     );
 }
+
+#[test]
+fn nested_folder_keeps_full_ancestry() {
+    use lg::cli::FolderCmd;
+    let f = Fake::start();
+    let c = client(&f);
+    let p = c.post("projects", json!({"title": "P"})).unwrap();
+    let pid = p["id"].as_u64().unwrap();
+    let mk = |title: &str, parent: Option<u64>| {
+        lg::cmd::folder(
+            &c,
+            FolderCmd::Create {
+                project: pid,
+                title: title.into(),
+                parent,
+                status: None,
+                start: None,
+                description: None,
+            },
+        )
+        .unwrap();
+        c.all("milestones", &[]).unwrap().into_iter().find(|m| m["title"] == title).unwrap()
+    };
+    let a = mk("A", None);
+    let b = mk("B", a["id"].as_u64());
+    let g = mk("C", b["id"].as_u64());
+    assert!(a["ancestry"].is_null());
+    assert_eq!(b["ancestry"], a["id"].to_string());
+    assert_eq!(g["ancestry"], format!("{}/{}", a["id"], b["id"]));
+}

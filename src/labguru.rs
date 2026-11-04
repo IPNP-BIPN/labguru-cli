@@ -33,8 +33,9 @@ pub enum TextOutcome {
     Commented(u64),
 }
 
-fn same_html(a: &str, b: &str) -> bool {
-    let n = |s: &str| s.split_whitespace().collect::<String>();
+/// Equal up to whitespace and `<img … />` vs `<img …>` (Labguru drops the slash).
+pub fn same_html(a: &str, b: &str) -> bool {
+    let n = |s: &str| s.split_whitespace().collect::<String>().replace("/>", ">");
     n(a) == n(b)
 }
 

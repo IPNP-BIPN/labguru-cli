@@ -904,7 +904,8 @@ pub fn new_entry(root: &Path, folder: &str, title: &str) -> Result<PathBuf> {
             format!("# {folder}\n\n{}\n", tr!("Folder summary.", "Résumé du dossier.")),
         )?;
     }
-    let p = d.join(format!("{}.md", slug(title)));
+    // dated name: it gives the year to the DD/MM dates of the entry, and sorts entries
+    let p = d.join(format!("{}-{}.md", jiff::Zoned::now().date(), slug(title)));
     if p.exists() {
         bail!(tr!(
             format!("{} already exists", p.display()),
@@ -912,9 +913,10 @@ pub fn new_entry(root: &Path, folder: &str, title: &str) -> Result<PathBuf> {
         ));
     }
     let body = if fr {
-        format!("---\nstatut: prévue\n---\n# {title}\n\n## Description\n\n## Procédure\n\n## Résultats\n")
+        // no status header: it would win over the Results rule and keep the entry "planned" forever
+        format!("# {title}\n\n## Description\n\n## Procédure\n\n## Résultats\n")
     } else {
-        format!("---\nstatus: planned\n---\n# {title}\n\n## Description\n\n## Procedure\n\n## Results\n")
+        format!("# {title}\n\n## Description\n\n## Procedure\n\n## Results\n")
     };
     std::fs::write(&p, body)?;
     Ok(p)

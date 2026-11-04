@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+*.pdb
+# personal notebooks and local settings never go in the repository
+/lg.toml
+/config.toml
+*.lg-part
+.DS_Store

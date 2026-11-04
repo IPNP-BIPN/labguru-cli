@@ -1,0 +1,43 @@
+[package]
+name = "labguru-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "lg: Labguru on the command line (projects, folders, experiments, and your own notebook)"
+license = "MIT"
+repository = "https://github.com/IPNP-BIPN/labguru-cli"
+readme = "README.md"
+keywords = ["labguru", "eln", "cli", "notebook"]
+categories = ["command-line-utilities", "science"]
+
+[[bin]]
+name = "lg"
+path = "src/main.rs"
+
+[lib]
+name = "lg"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
+clap_complete = "4.6"
+clap_mangen = "0.3"
+comfy-table = "8"
+dialoguer = { version = "0.12", default-features = false, features = ["password"] }
+jaq-core = "3"
+jaq-json = { version = "2", features = ["serde"] }
+jaq-std = "3"
+jiff = "0.2"
+keyring = "4"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+ureq = { version = "3.5", features = ["json"] }
+walkdir = "2"
+
+[profile.release]
+strip = true
+lto = true

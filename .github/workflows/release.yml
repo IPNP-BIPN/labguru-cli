@@ -1,0 +1,57 @@
+name: Release
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          name=lg-${GITHUB_REF_NAME}-${{ matrix.target }}
+          mkdir -p "$name/completions"
+          bin=target/${{ matrix.target }}/release/lg
+          [ -f "$bin.exe" ] && bin="$bin.exe"
+          cp "$bin" README.md LICENSE "$name/"
+          if [ "${{ matrix.target }}" != "x86_64-apple-darwin" ]; then
+            "$bin" man > "$name/lg.1"
+            for s in bash zsh fish powershell; do "$bin" completion $s > "$name/completions/lg.$s"; done
+          fi
+          if [ "${{ runner.os }}" = "Windows" ]; then 7z a "$name.zip" "$name" >/dev/null; echo "ASSET=$name.zip" >> $GITHUB_ENV
+          else tar czf "$name.tar.gz" "$name"; echo "ASSET=$name.tar.gz" >> $GITHUB_ENV; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.ASSET }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes lg-*
+        env:
+          GH_TOKEN: ${{ github.token }}

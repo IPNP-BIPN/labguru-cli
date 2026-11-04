@@ -28,17 +28,17 @@ This README is a tutorial: follow it from top to bottom once (about 15 minutes),
 
 | System | Archive |
 |---|---|
-| macOS, Apple silicon (M1…M4) | `lg-v0.1.0-aarch64-apple-darwin.tar.gz` |
-| macOS, Intel | `lg-v0.1.0-x86_64-apple-darwin.tar.gz` |
-| Linux, x86-64 | `lg-v0.1.0-x86_64-unknown-linux-musl.tar.gz` |
-| Linux, ARM64 | `lg-v0.1.0-aarch64-unknown-linux-musl.tar.gz` |
-| Windows | `lg-v0.1.0-x86_64-pc-windows-msvc.zip` |
+| macOS, Apple silicon (M1…M4) | `lg-v0.1.1-aarch64-apple-darwin.tar.gz` |
+| macOS, Intel | `lg-v0.1.1-x86_64-apple-darwin.tar.gz` |
+| Linux, x86-64 | `lg-v0.1.1-x86_64-unknown-linux-musl.tar.gz` |
+| Linux, ARM64 | `lg-v0.1.1-aarch64-unknown-linux-musl.tar.gz` |
+| Windows | `lg-v0.1.1-x86_64-pc-windows-msvc.zip` |
 
 On macOS or Linux, unpack it and put `lg` on your `PATH`:
 
 ```bash
-tar xzf lg-v0.1.0-aarch64-apple-darwin.tar.gz
-mkdir -p ~/.local/bin && mv lg-v0.1.0-aarch64-apple-darwin/lg ~/.local/bin/
+tar xzf lg-v0.1.1-aarch64-apple-darwin.tar.gz
+mkdir -p ~/.local/bin && mv lg-v0.1.1-aarch64-apple-darwin/lg ~/.local/bin/
 xattr -d com.apple.quarantine ~/.local/bin/lg 2>/dev/null   # macOS: the binary is not signed
 lg --version
 ```
@@ -48,10 +48,10 @@ If `lg --version` answers `command not found`, add `~/.local/bin` to your `PATH`
 
 On Windows, unzip the archive and move `lg.exe` to a folder listed in your `PATH`.
 
-**Or build it** with Rust 1.88 or later:
+**Or install it with Cargo** (Rust 1.88 or later); the crate is `labguru-cli`, the command is `lg`:
 
 ```bash
-cargo install --git https://github.com/IPNP-BIPN/labguru-cli
+cargo install labguru-cli
 ```
 
 **Optional:** tab completion and the manual page (also included in the archives):

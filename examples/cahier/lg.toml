@@ -1,0 +1,16 @@
+# Cahier lg : `lg notebook push` (à blanc), puis `lg notebook push --apply`.
+# host : instance Labguru (par défaut : celle où vous êtes connecté).
+# data_dirs : dossiers de données ; leurs dates de modification donnent les heures réelles de chaque jour.
+# layout.style : "by-status" (un dossier par état) ou "single" (un seul dossier).
+
+project = "Projet exemple"
+data_dirs = ["data"]
+
+[layout]
+style = "by-status"
+completed = "terminées"
+in_progress = "en cours"
+planned = "prévues"
+completed_text = "Expériences terminées : le travail est fini."
+in_progress_text = "Expériences commencées : leur entrée consigne déjà des résultats."
+planned_text = "Expériences prévues : rien n'est encore réalisé, l'entrée décrit ce qui est envisagé."

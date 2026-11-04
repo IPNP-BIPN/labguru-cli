@@ -1,0 +1,16 @@
+# lg notebook: `lg notebook push` (dry run), then `lg notebook push --apply`.
+# host: Labguru instance (default: the one you are logged in to).
+# data_dirs: where your data files live; their modification times give the real hours of each day.
+# layout.style: "by-status" (one folder per status) or "single" (one folder).
+
+project = "Example project"
+data_dirs = ["data"]
+
+[layout]
+style = "by-status"
+completed = "Completed"
+in_progress = "In Progress"
+planned = "Planned"
+completed_text = "Finished experiments: the work is done."
+in_progress_text = "Started experiments: their entry already records results."
+planned_text = "Planned experiments: nothing done yet, the entry describes what is intended."

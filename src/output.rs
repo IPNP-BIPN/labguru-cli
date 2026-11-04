@@ -111,7 +111,14 @@ pub fn jq(v: &Value, expr: &str) -> Result<Vec<String>> {
     use jaq_core::{Compiler, Ctx, Vars, data, unwrap_valr};
     use jaq_json::Val;
     let input = jaq_json::read::parse_single(serde_json::to_string(v)?.as_bytes()).map_err(|e| anyhow!("{e}"))?;
-    let defs = jaq_core::defs().chain(jaq_std::defs()).chain(jaq_json::defs());
+    // jq has @csv and @tsv, jaq 3 does not
+    const EXTRA: &str = r#"
+def @csv: [.[] | if type == "string" then "\"" + gsub("\""; "\"\"") + "\"" elif . == null then "" else tostring end] | join(",");
+def @tsv: [.[] | if type == "string" then gsub("\\\\"; "\\\\") | gsub("\t"; "\\t") | gsub("\n"; "\\n") | gsub("\r"; "\\r")
+  elif . == null then "" else tostring end] | join("\t");
+"#;
+    let extra = jaq_core::load::parse(EXTRA, |p| p.defs()).unwrap_or_default();
+    let defs = jaq_core::defs().chain(jaq_std::defs()).chain(jaq_json::defs()).chain(extra);
     let funs = jaq_core::funs().chain(jaq_std::funs()).chain(jaq_json::funs());
     let arena = Arena::default();
     let modules = Loader::new(defs)
@@ -291,6 +298,9 @@ mod tests {
         assert_eq!(jq(&Value::Array(rows()), ".[] | .title").unwrap(), ["A\tb", "C"]);
         assert_eq!(jq(&json!({"n": [1, 2]}), ".n | length").unwrap(), ["2"]);
         assert!(jq(&json!(1), ".[").is_err());
+        let row = json!([1, "a\tb", "say \"hi\"", null]);
+        assert_eq!(jq(&row, "@tsv").unwrap(), ["1\ta\\tb\tsay \"hi\"\t"]);
+        assert_eq!(jq(&row, "@csv").unwrap(), ["1,\"a\tb\",\"say \"\"hi\"\"\","]);
         assert_eq!(template(&Value::Array(rows()), "{{.id}}:{{ .project.id }}\\n"), "1:7\n2:\n");
     }
 }

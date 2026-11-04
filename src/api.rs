@@ -279,6 +279,12 @@ impl Client {
         }
         let s = serde_json::to_string(&b).unwrap_or_default();
         let ct = "application/json";
+        // API v2 reads the token from the query for every method (my.labguru.com /api-docs/v2)
+        let q: Vec<(&str, &str)> = match url.contains("/api/v2/") {
+            true => q.chain([("token", self.token.as_str())]).collect(),
+            false => q.collect(),
+        };
+        let q = q.into_iter();
         match method.to_ascii_uppercase().as_str() {
             "POST" => a.post(url).query_pairs(q).header("Content-Type", ct).send(&s),
             "PUT" => a.put(url).query_pairs(q).header("Content-Type", ct).send(&s),

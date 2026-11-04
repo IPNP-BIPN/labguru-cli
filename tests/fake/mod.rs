@@ -163,7 +163,15 @@ fn route(st: &Mutex<State>, method: &str, target: &str, ctype: &str, body: &[u8]
             .unwrap_or_default();
         (t, v)
     };
-    let rest = path.trim_start_matches("/api/v1/").trim_end_matches(".json").to_string();
+    // API v2 (my.labguru.com) reads the token from the query only
+    if path.starts_with("/api/v2/") && q.get("token").map(String::as_str) != Some(TOKEN) {
+        return (401, json!({"message": "You are not authorized to perform this action"}));
+    }
+    let rest = path
+        .trim_start_matches("/api/v1/")
+        .trim_start_matches("/api/v2/")
+        .trim_end_matches(".json")
+        .to_string();
     if rest == "sessions" {
         return if payload["password"] == "pw" {
             (200, json!({"token": TOKEN}))

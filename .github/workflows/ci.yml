@@ -22,6 +22,14 @@ jobs:
       - run: cargo test
         env:
           LG_NO_KEYRING: "1"
+      # the token in the real system keyring (Keychain, Credential Manager, Secret Service)
+      - if: runner.os != 'Linux'
+        run: cargo test --test api token_in_system_keyring -- --ignored
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y gnome-keyring dbus-x11
+          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null && cargo test --test api token_in_system_keyring -- --ignored'
+
 
   # the release ships static Linux binaries: build one on every push, not only at tag time
   musl:

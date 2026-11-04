@@ -492,7 +492,8 @@ fn merge(a: &mut Value, b: Value) {
     }
 }
 
-fn dates_item(d: &Dates) -> Result<Map<String, Value>> {
+/// `current`: the experiment being edited, whose other date sets the duration when only one is given.
+fn dates_item(d: &Dates, current: Option<&Value>) -> Result<Map<String, Value>> {
     let tz = jiff::tz::TimeZone::system();
     let mut m = Map::new();
     let (mut sd, mut ed) = (None, None);
@@ -503,6 +504,11 @@ fn dates_item(d: &Dates) -> Result<Map<String, Value>> {
     if let Some(en) = &d.end {
         ed = Some(date_or_err(en)?.parse::<jiff::civil::Date>()?);
         m.insert("end_date".into(), json!(lgu::iso_utc(en, &tz)?));
+    }
+    let day = |k: &str| current.and_then(|c| s(c, k).get(..10)?.parse::<jiff::civil::Date>().ok());
+    if sd.is_some() != ed.is_some() {
+        sd = sd.or_else(|| day("start_date"));
+        ed = ed.or_else(|| day("end_date"));
     }
     // the Gantt chart reads duration, not end_date
     match (d.duration, sd, ed) {
@@ -530,7 +536,7 @@ pub fn experiment(c: &Client, cmd: ExperimentCmd) -> Result<()> {
             title,
             dates,
         } => {
-            let mut item = dates_item(&dates)?;
+            let mut item = dates_item(&dates, None)?;
             item.insert("title".into(), json!(title));
             item.insert("project_id".into(), json!(project));
             item.insert("milestone_id".into(), json!(folder)); // required by Labguru
@@ -538,7 +544,10 @@ pub fn experiment(c: &Client, cmd: ExperimentCmd) -> Result<()> {
             Ok(())
         }
         ExperimentCmd::Edit { id, title, dates } => {
-            let mut item = dates_item(&dates)?;
+            let cur = (dates.start.is_some() != dates.end.is_some() && dates.duration.is_none())
+                .then(|| c.get(&format!("experiments/{id}")))
+                .transpose()?;
+            let mut item = dates_item(&dates, cur.as_ref())?;
             if let Some(t) = title {
                 item.insert("title".into(), json!(t));
             }
@@ -1059,6 +1068,17 @@ pub fn api(c: &Client, a: ApiArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_date_keeps_duration_right() {
+        let d = Dates {
+            start: None,
+            end: Some("2026-11-04".into()),
+            duration: None,
+        };
+        let cur = json!({"start_date": "2026-11-01 00:00", "end_date": "2026-11-03 00:00"});
+        assert_eq!(dates_item(&d, Some(&cur)).unwrap()["duration"], 4);
+    }
 
     #[test]
     fn fields() {

@@ -46,6 +46,11 @@ fn retries_pagination_and_errors() {
     let e = bad.get("projects").unwrap_err();
     assert!(e.downcast_ref::<AuthRequired>().is_some());
 
+    // API v2: token in the query, also for DELETE
+    let p = c.post("projects", json!({"title": "to delete"})).unwrap();
+    c.delete(&format!("v2/projects/{}", p["id"])).unwrap();
+    assert!(c.get(&format!("projects/{}", p["id"])).is_err());
+
     // PUT with an empty body
     let m = c.post("milestones", json!({"title": "F", "project_id": 101})).unwrap();
     assert_eq!(c.put(&format!("milestones/{}", m["id"]), json!({"title": "G"})).unwrap(), json!({}));
@@ -245,4 +250,100 @@ fn same_title_entries_keep_their_own_experiment() {
     assert_eq!(f.count("experiments"), 2);
     let (n, lines) = run(&c, &root, true);
     assert_eq!(n, 0, "{lines:?}");
+}
+
+/// The real binary, with its own config directory and no keyring.
+fn lg_cmd(cfg: &std::path::Path, args: &[&str], stdin: &str) -> (i32, String, String) {
+    lg_cmd_kr(cfg, args, stdin, false)
+}
+
+fn lg_cmd_kr(cfg: &std::path::Path, args: &[&str], stdin: &str, keyring: bool) -> (i32, String, String) {
+    use std::io::Write;
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_lg"));
+    if keyring {
+        cmd.env_remove("LG_NO_KEYRING");
+    } else {
+        cmd.env("LG_NO_KEYRING", "1");
+    }
+    let mut ch = cmd
+        .args(args)
+        .env("LG_CONFIG_DIR", cfg)
+        .env("LG_NO_CAPS", "1")
+        .env_remove("LABGURU_TOKEN")
+        .env_remove("LABGURU_HOST")
+        .env("LANG", "C")
+        .env_remove("LC_ALL")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    ch.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    let o = ch.wait_with_output().unwrap();
+    let txt = |b: Vec<u8>| String::from_utf8_lossy(&b).into_owned();
+    (o.status.code().unwrap_or(-1), txt(o.stdout), txt(o.stderr))
+}
+
+#[test]
+fn accounts_login_switch_logout() {
+    let f = Fake::start();
+    let cfg = tmpdir("accounts");
+    let h = f.url.as_str();
+    let login = |user: &str| lg_cmd(&cfg, &["auth", "login", "--hostname", h, "--with-token", "--user", user], TOKEN);
+    assert_eq!(login("a@lab.org").0, 0);
+    assert_eq!(login("b@lab.org").0, 0);
+    assert_eq!(
+        lg_cmd(&cfg, &["auth", "login", "--hostname", h, "--with-token"], "bad-token-xyz").0,
+        4
+    );
+
+    let (code, out, err) = lg_cmd(&cfg, &["auth", "status"], "");
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(out.contains("* b@lab.org") && out.contains("  a@lab.org"), "{out}");
+    assert!(!out.contains(TOKEN) && !err.contains(TOKEN));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(cfg.join("config.toml")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    // two accounts: switch goes to the other one
+    assert_eq!(lg_cmd(&cfg, &["auth", "switch"], "").0, 0);
+    assert!(lg_cmd(&cfg, &["auth", "status"], "").1.contains("* a@lab.org"));
+    assert_eq!(lg_cmd(&cfg, &["project", "list"], "").0, 0);
+
+    assert_eq!(lg_cmd(&cfg, &["auth", "logout", "--user", "a@lab.org"], "").0, 0);
+    let out = lg_cmd(&cfg, &["auth", "status"], "").1;
+    assert!(out.contains("* b@lab.org") && !out.contains("a@lab.org"), "{out}");
+    assert_eq!(lg_cmd(&cfg, &["auth", "logout"], "").0, 0);
+    assert_eq!(lg_cmd(&cfg, &["project", "list"], "").0, 4, "logged out: exit 4");
+}
+
+/// Uses the real system keyring (macOS Keychain, Windows Credential Manager, Secret Service):
+/// run by CI with `cargo test -- --ignored`, not by default (it would prompt on a desktop).
+#[test]
+#[ignore]
+fn token_in_system_keyring() {
+    let f = Fake::start();
+    let cfg = tmpdir("keyring");
+    let h = f.url.as_str();
+    let user = format!("ci-{}@lab.org", std::process::id());
+    let (code, _, err) = lg_cmd_kr(
+        &cfg,
+        &["auth", "login", "--hostname", h, "--with-token", "--user", &user],
+        TOKEN,
+        true,
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(!err.contains("keyring unavailable"), "the keyring was not used: {err}");
+    let conf = std::fs::read_to_string(cfg.join("config.toml")).unwrap();
+    assert!(!conf.contains(TOKEN), "token must not be in the file when the keyring works");
+    let (code, out, _) = lg_cmd_kr(&cfg, &["auth", "status"], "", true);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("system keyring") && out.contains("valid token"), "{out}");
+    assert_eq!(lg_cmd_kr(&cfg, &["project", "list"], "", true).0, 0);
+    assert_eq!(lg_cmd_kr(&cfg, &["auth", "logout"], "", true).0, 0);
+    // the keyring entry is gone: logging in again with an empty file finds no token
+    assert_eq!(lg_cmd_kr(&cfg, &["project", "list"], "", true).0, 4);
 }
